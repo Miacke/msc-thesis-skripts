@@ -1,5 +1,5 @@
 # ============================================================
-# 02_make_chm.R
+# 01_make_chm.R
 # ============================================================
 # Beschreibung:
 #   Nimmt LAS-Files pro ROi, normalisiert die Punktwolke, erstellt ein CHM und speichert ab
@@ -14,6 +14,12 @@
 # Autor:       Mirco Ackermann
 # Datum:       17.08.2026
 # Projekt:     UNIGIS MasterThesis
+#
+# Nutzung generativer KI bei der Erstellung dieses Skripts:
+#   - Bei der Entwicklung dieser Skripts wurde generative KI (Claude, Anthropic, Opus 4.8) unterstützend eingesetzt
+#   - Der Einsatz betraf die Fehlersuche (Debugging) sowie die Klärung von Funktionialität und allfälliger Besonderheiten einzelner Funktionen
+#   - Darüber hinaus wurde die KI als Dialogpartner beim Brainstorming unterstützend eingesetzt
+#   - Von der KI generierte Vorschläge, welche mindestens in Ansätzen in das Skript einflossen, sind allesamt vom Autor geprüft, vollständig verstanden und in dessen Verantwortung 
 # ============================================================
 
 library(lidR)
