@@ -1,3 +1,27 @@
+# ============================================================
+# utils.py
+# ============================================================
+# Beschreibung:
+#   - Funktionen für diverse Pythonskripts der MasterThesis
+
+# Input:
+#   - div, beschrieben pro Funktion
+#
+# Output:
+#   - div, beschrieben pro Funktion
+#
+# Autor:       Mirco Ackermann
+# Datum:       17.06.2026
+# Projekt:     UNIGIS MasterThesis
+#
+# Nutzung generativer KI bei der Erstellung dieses Skripts:
+#   - Bei der Entwicklung dieser Skripts wurde generative KI (Claude, Anthropic, Opus 4.8) unterstützend eingesetzt
+#   - Der Einsatz betraf die Fehlersuche (Debugging) sowie die Klärung von Funktionialität und allfälliger Besonderheiten einzelner Funktionen
+#   - Darüber hinaus wurde die KI als Dialogpartner beim Brainstorming unterstützend eingesetzt
+#   - Von der KI generierte Vorschläge, welche mindestens in Ansätzen in das Skript einflossen, sind allesamt vom Autor geprüft, vollständig verstanden und in dessen Verantwortung 
+# ============================================================
+
+
 import arcpy
 import math
 from collections import defaultdict
@@ -5,8 +29,7 @@ from datetime import datetime
 
 def calc_angle(geometrie):
     """
-    Berechnet den absoluten Winkel einer geraden Linie (0-180°).
-    Unabhängig von der Digitalisierungsrichtung.
+    Berechnet den absoluten Winkel einer geraden Linie (0-180°). Unabhängig von der Digitalisierungsrichtung.
     
     Parameter:
         geometrie  - arcpy SHAPE@ Geometrie-Objekt
@@ -50,8 +73,7 @@ def check_angle_similarity(angle_1, angle_2, tolerance):
 
 def segment_from_line(line, percentage_1, percentage_2):
     """ 
-    Berechnet Segment einer Linie mit der Angabe von Start- und Endpunkt durch
-    prozentuale Angabe  
+    Berechnet Segment einer Linie mit der Angabe von Start- und Endpunkt durch prozentuale Angabe  
     
     Parameter:
         line            - arcpy SHAPE@ Geometrie-Objekt
@@ -129,11 +151,9 @@ def calc_velocity(starttime, endtime, lenght):
     
 def parse_date(value, oid = ""):
     """
-    Konvertiert ein Datumsfeld (Text oder datetime) in ein Python datetime-Objekt.
-    Gibt None zurück wenn das Parsing fehlschlägt.
+    Konvertiert ein Datumsfeld (Text oder datetime) in ein Python datetime-Objekt. Gibt None zurück wenn das Parsing fehlschlägt.
 
-    Diverse mögliche Datumsvarianten sind hart codiert. Bei Fehlschlagen muss Datensatz überprüft werden 
-    und allenfalls eine weitere Variante codiert werden!
+    Diverse mögliche Datumsvarianten sind hart codiert. Bei Fehlschlagen muss Datensatz überprüft werden und allenfalls eine weitere Variante codiert werden!
     """
     if value is None:
         raise ValueError(f"Datumsfeld in Feature OID={oid} ist None!")

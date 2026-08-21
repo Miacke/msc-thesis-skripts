@@ -2,8 +2,7 @@
 # 01_1_calculate_flighthight.py
 # ============================================================
 # Beschreibung:
-#   Berechnet absolute Flughöhen pro Fluglinie. Spezifische Eigenschaften der verwendeten Metadaten sind hard gecoded.
-#   Bei einigen Linien können die Flughöhen aufgrund mangelhafter Datengrundlage nicht mehr rekonstruiert werden.
+#   Berechnet absolute Flughöhen pro Fluglinie. Spezifische Eigenschaften der verwendeten Metadaten sind hard gecoded. Bei einigen Linien können die Flughöhen aufgrund mangelhafter Datengrundlage nicht mehr rekonstruiert werden.
 #
 # Vorgehen:
 #   - Iteriert durch alle Line-Features aller Streifen-FC in allen Datasets des angegebenen Workspace
@@ -22,6 +21,12 @@
 # Autor:       Mirco Ackermann
 # Datum:       17.06.2026
 # Projekt:     UNIGIS MasterThesis
+#
+# Nutzung generativer KI bei der Erstellung dieses Skripts:
+#   - Bei der Entwicklung dieser Skripts wurde generative KI (Claude, Anthropic, Opus 4.8) unterstützend eingesetzt
+#   - Der Einsatz betraf die Fehlersuche (Debugging) sowie die Klärung von Funktionialität und allfälliger Besonderheiten einzelner Funktionen
+#   - Darüber hinaus wurde die KI als Dialogpartner beim Brainstorming unterstützend eingesetzt
+#   - Von der KI generierte Vorschläge, welche mindestens in Ansätzen in das Skript einflossen, sind allesamt vom Autor geprüft, vollständig verstanden und in dessen Verantwortung 
 # ============================================================
 
 import arcpy

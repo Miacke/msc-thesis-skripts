@@ -27,6 +27,7 @@ library(lidR)
 library(lubridate)
 library(dplyr)
 
+options(lidR.progress = FALSE)
 start_time <- now()
 print(paste0("Start: ", start_time))
 
@@ -37,7 +38,7 @@ print(paste0("Start: ", start_time))
 # Untersuchungsgebiete
 
 survey_area_fgdb_path <- r"(A:\11_MasterThesis\01_DefStruktur\06_GIS\MasterThesis_Datenanalyse\MasterThesis_Datenanalyse.gdb)"
-survey_area_fcname <- r"(survey_area_WALD_MANUELL)"
+survey_area_fcname <- r"(survey_area_WALD_HUELLE_MANUELL)"
 survey_area <- st_read(survey_area_fgdb_path, layer = survey_area_fcname)
 
 # LAZ-Files
@@ -106,8 +107,23 @@ calc_understory_penetration <- function(las, grid, hmax_attribute, column_prefix
 for (i in survey_area$Nummer_Untersuchungsgebiet){
   
   start_time_loop <- now()
+  print("----------------------------------------------------------------------------------------------------------------------")
+  print(paste0("Start bei Gebiet Nr.", i))
   
-  current_survey_area <- filter(survey_area, Nummer_Untersuchungsgebiet == i)
+  # Check ob Ordner überhaupt existiert
+  if (!file.exists(file.path(laz_parent_folder, i))){
+    print(paste0("Ordner ", file.path(laz_parent_folder, i), "existiert nicht. Berechnungen für dieses Gebiet übersprungen"))
+    next
+  }
+  
+  # Nach Programmabbruch muss ggf. an einer bestimmten Stelle eingesetzt werden
+  # if (i != 6 & i != 7){
+  #   print(paste0("Gebiet Nr.", i, " übersprungen"))
+  #   next
+  # }
+  
+  
+  current_survey_area <- dplyr::filter(survey_area, Nummer_Untersuchungsgebiet == i)
   
   # Gitter bilden (ergibt sfc-objekt -> reine Geometrie, ohne Attributentabelle)
   grid_15_sfc <- st_make_grid(current_survey_area, cellsize = 15)  
@@ -134,6 +150,8 @@ for (i in survey_area$Nummer_Untersuchungsgebiet){
   grid_5$ID <- paste0(current_survey_area$Nummer_Untersuchungsgebiet, "_", seq_len(nrow(grid_5)))
   grid_15$ID <- paste0(current_survey_area$Nummer_Untersuchungsgebiet, "_", seq_len(nrow(grid_15)))
   
+  print("...Gitterzellen erstellt")
+  
   # =============================================================
   # hmax als fixen Referenzwert aus allen verfügbaren ALS-Punkten berechnen und in der Punktwolke abspeichern
   # =============================================================
@@ -141,9 +159,11 @@ for (i in survey_area$Nummer_Untersuchungsgebiet){
   # Pfade für beide Ausrichtungen setzen
   dir_1_path <- file.path(laz_parent_folder, i, "Richtung_1")
   dir_2_path <- file.path(laz_parent_folder, i, "Richtung_2")
+  dir_1_filepath <- list.files(dir_1_path, full.names = TRUE, pattern = "\\.laz$")
+  dir_2_filepath <- list.files(dir_2_path, full.names = TRUE, pattern = "\\.laz$")
   
   # Alle verfügbaren LAS-Files der Survey Area ins Memory einlesen
-  nlaz_total <- readALSLAS(c(list.files(dir_1_path, full.names = TRUE),list.files(dir_2_path, full.names = TRUE)))
+  nlaz_total <- readALSLAS(c(dir_1_filepath, dir_2_filepath))
   
   # hmax pro Grid berechnen
   grid_2 <- calc_hmax(nlaz_total, grid_2, "2")
@@ -154,19 +174,21 @@ for (i in survey_area$Nummer_Untersuchungsgebiet){
   rm(nlaz_total)
   gc()
   
+  print("... hmax berechnet")
+  
   # Um als fixer Referenzwert zur Verfügung zu stehen, wird hmax für jede grid-Grösse direkt in die pro Fluglinie separat abgelegte Punktwolke geschrieben
   # Jedes laz-file hat so pro Punkt noch die hmax-Werte des 2m-, 5m-, und 15m-Gitters gespeichert. Dies wird benötigt, weil spätere Kalkulationen nur auf Attribute
   # innerhalb der Punktwolke zugreifen können
-  for (file in c(list.files(dir_1_path, full.names = TRUE),list.files(dir_2_path, full.names = TRUE))){
+  for (file in c(dir_1_filepath,dir_2_filepath)){
     temp_laz <- readALSLAS(file)
     temp_laz <- merge_spatial(temp_laz, grid_2, "hmax_2")
     temp_laz <- merge_spatial(temp_laz, grid_5, "hmax_5")
     temp_laz <- merge_spatial(temp_laz, grid_15, "hmax_15")
     
     # Um im laz-file verfügbar zu sein, muss das Attribut auch in den header geschrieben werden
-    temp_laz <- add_lasattribute(temp_laz, name = "hmax_2", desc = "99th hight percentile, 2m tile")
-    temp_laz <- add_lasattribute(temp_laz, name = "hmax_5", desc = "99th hight percentile, 5m tile")
-    temp_laz <- add_lasattribute(temp_laz, name = "hmax_15", desc = "99th hight percentile, 15m tile")
+    temp_laz <- add_lasattribute(temp_laz, name = "hmax_2", desc = "99th height percentile, 2m tile")
+    temp_laz <- add_lasattribute(temp_laz, name = "hmax_5", desc = "99th height percentile, 5m tile")
+    temp_laz <- add_lasattribute(temp_laz, name = "hmax_15", desc = "99th height percentile, 15m tile")
     
     # Direkt in das eingelesene File schreiben
     writeLAS(temp_laz, file)
@@ -175,7 +197,7 @@ for (i in survey_area$Nummer_Untersuchungsgebiet){
   # nach Kalkulation temp_laz löschen und Memory freigeben
   rm(temp_laz)
   gc()
-
+  print("... und geschrieben")
   # =============================================================
   # Auswahl Fluglinien und Berechnung der Metriken
   # =============================================================
@@ -183,8 +205,8 @@ for (i in survey_area$Nummer_Untersuchungsgebiet){
   # -------------------------------------------------------------
   # Für Parallelflüge
   # laz-files einlesen, die jetzt hmax-werte pro Punkt und Grid-grösse gespeichert
-  direction_1 <- list.files(dir_1_path, full.names = TRUE)
-  direction_2 <- list.files(dir_2_path, full.names = TRUE)
+  direction_1 <- dir_1_filepath
+  direction_2 <- dir_2_filepath
   nlaz_parallel_1 <- readALSLAS(direction_1)
   nlaz_parallel_2 <- readALSLAS(direction_2)
   
@@ -198,6 +220,8 @@ for (i in survey_area$Nummer_Untersuchungsgebiet){
   grid_5 <- calc_ground_penetration(nlaz_parallel_2, grid_5, "parallel_2")
   grid_15 <- calc_ground_penetration(nlaz_parallel_2, grid_15, "parallel_2")
   
+  print("...ground penetration rate für Parallelflüge berechnet")
+  
   # Understory Penetration Parallel 1 berechnen
   grid_2 <- calc_understory_penetration(nlaz_parallel_1, grid_2, "hmax_2", "parallel_1")
   grid_5 <- calc_understory_penetration(nlaz_parallel_1, grid_5, "hmax_5", "parallel_1")
@@ -207,6 +231,8 @@ for (i in survey_area$Nummer_Untersuchungsgebiet){
   grid_2 <- calc_understory_penetration(nlaz_parallel_2, grid_2, "hmax_2", "parallel_2")
   grid_5 <- calc_understory_penetration(nlaz_parallel_2, grid_5, "hmax_5", "parallel_2")
   grid_15 <- calc_understory_penetration(nlaz_parallel_2, grid_15, "hmax_15", "parallel_2")
+  
+  print("...understory penetration rate für Parallelflüge berechnet")
   
   # -------------------------------------------------------------
   # Für Kreuzflüge
@@ -237,6 +263,8 @@ for (i in survey_area$Nummer_Untersuchungsgebiet){
   grid_5 <- calc_ground_penetration(nlaz_cross_2, grid_5, "kreuz_2")
   grid_15 <- calc_ground_penetration(nlaz_cross_2, grid_15, "kreuz_2")
   
+  print("...ground penetration rate für Kreuzflüge berechnet")
+  
   # Understory Penetration Kreuz 1 berechnen
   grid_2 <- calc_understory_penetration(nlaz_cross_1, grid_2, "hmax_2", "kreuz_1")
   grid_5 <- calc_understory_penetration(nlaz_cross_1, grid_5, "hmax_5", "kreuz_1")
@@ -247,6 +275,8 @@ for (i in survey_area$Nummer_Untersuchungsgebiet){
   grid_5 <- calc_understory_penetration(nlaz_cross_2, grid_5, "hmax_5", "kreuz_2")
   grid_15 <- calc_understory_penetration(nlaz_cross_2, grid_15, "hmax_15", "kreuz_2")
   
+  print("...understory penetration rate für Kreuzflüge berechnet")
+  
   # =============================================================
   # Output pro Zellengrösse in data.frame schreiben
   # =============================================================
@@ -255,17 +285,23 @@ for (i in survey_area$Nummer_Untersuchungsgebiet){
   grid_5_completedata <- rbind(grid_5_completedata, grid_5)
   grid_15_completedata <- rbind(grid_15_completedata, grid_15)
   
+  # Für den Fall eines Programmabbruchs wird zusätzlich jedes File einzeln geschrieben
+  save(grid_2, file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen)", paste0(i, "_grid_2.Rda")))
+  save(grid_5, file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen)", paste0(i, "_grid_5.Rda")))
+  save(grid_15, file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen)", paste0(i, "_grid_15.Rda")))
+  
   end_time_loop <- now()
-  print(paste0("Benötigte Zeit für Gebiet Nr. ", i, ": ", round(as.numeric(difftime(end_time_loop, start_time_loop, units = "mins")), 2), " min"))
+  print(paste0("...fertig mit Gebiet Nr. ", i, " in ", round(as.numeric(difftime(end_time_loop, start_time_loop, units = "mins")), 2), " min"))
+  
 }
 
 # =============================================================
 # Dataframe auf Festplatte speichern
 # =============================================================
 
-save(grid_2_completedata,file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen)", "grid_2.Rda"))
-save(grid_5_completedata,file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen)", "grid_5.Rda"))
-save(grid_15_completedata,file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen)", "grid_15.Rda"))
+save(grid_2_completedata,file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen)", "00_complete_grid_2.Rda"))
+save(grid_5_completedata,file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen)", "00_complete_grid_5.Rda"))
+save(grid_15_completedata,file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen)", "00_complete_grid_15.Rda"))
 
 end_time <- now()
 print(paste0("Endzeit: ", end_time))

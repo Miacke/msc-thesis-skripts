@@ -39,7 +39,7 @@ print(paste0("Start: ", start_time))
 # Parallelisierung und andere Optionen
 # ============================================================
 
-plan(multisession, workers = 4)  # max. 3 workers
+plan(multisession, workers = 3)  # max. 3 workers
 options(lidR.progress = FALSE)
 
 # ============================================================
@@ -50,7 +50,7 @@ options(lidR.progress = FALSE)
 laz_parent_folder <- r"(A:\11_MasterThesis\01_DefStruktur\02_Data\03_ALS-Data\BEV_Data)"
 laz_files <- list.files(laz_parent_folder, pattern = r"(\.laz$)", recursive = TRUE, full.names = TRUE, ignore.case = TRUE)
 
-# Fluglinienzuordnung
+# Fluglinienzuordnung (File wo pro Untersuchungsgebiet die Fluglinien pro Ausrichtung getrennt vorliegen. bsp: 1. Zeile, 1 (gebiet), 123_34 (Richtung 1), 234_34 (Richtung 2), Zeile 2: 2, 234_45, 123_68, etc.)
 flight_line_table_path <- r"(A:\11_MasterThesis\01_DefStruktur\03_Arbeitsunterlagen\Fluglinien_pro_Untersuchungsgebiet.csv)"
 flight_line_table <- read.csv(flight_line_table_path, sep = ";", colClasses="character")
 
@@ -110,6 +110,13 @@ if (nrow(survey_area_buffered) != length(unique(survey_area_buffered$Nummer_Unte
 
 for (i in survey_area_buffered$Nummer_Untersuchungsgebiet){  # for schleife iteriert durch spalten, deshalb zuerst alle Nummer_Untersuchungsgebiete iterieren und danach sf-Objekt mit index aufrufen
   start_time_loop <- now()
+  
+  # Nach Programmabbruch muss ggf. an einer bestimmten Stelle eingesetzt werden
+  # if (i != 6 & i != 7){
+  #   print(paste0("Gebiet Nr.", i, " übersprungen"))
+  #   next
+  # }
+  
   cat(paste0("Start bei Untersuchungsgebiet Nr. ", i, "..."))
   sa <- filter(survey_area_buffered, Nummer_Untersuchungsgebiet == i)
   
