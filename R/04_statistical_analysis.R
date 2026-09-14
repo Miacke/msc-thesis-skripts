@@ -22,3 +22,15 @@
 #   - Von der KI generierte Vorschläge, welche mindestens in Ansätzen in das Skript einflossen, sind allesamt vom Autor geprüft, vollständig verstanden und in dessen Verantwortung 
 # ============================================================
 
+library(dplyr)
+
+# Berechnung des t-wertes (Beispieldaten)
+
+vec_1 <- runif(n=12, min = 5000, max = 50000)
+vec_2 <- runif(n=12, min = 10000, max = 80000)
+
+
+vec_diff <- vec_2 - vec_1
+shapiro.test(vec_diff)
+
+t.test(vec_1, vec_2, paired = TRUE, conf.level = 0.99)
