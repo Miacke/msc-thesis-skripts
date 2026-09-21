@@ -2,13 +2,14 @@
 # 03_calculate_metrics.R
 # ============================================================
 # Beschreibung:
-#   Füllt Untersuchungsgebiete mit Rasterzellen
+#   Füllt Untersuchungsgebiete mit Rasterzellen, Berechnet ob eine Rasterzelle ein Punkt enthält. Gibt data.frame aus mit Geometrie und spalten bei welcher Linienkombination ein Bodenpunkt getroffen wurde und bei welcher nicht.
 #
 # Input:
 #   - Untersuchungsgebiete
+#   - Pfade der LAS-Files
 #
 # Output:
-#   - Rasterzellen innerhalb Untersuchungsgebieten
+#   - Rasterzellen innerhalb Untersuchungsgebieten mit Information ob Bodenpunkt vorhanden oder nicht
 #
 # Autor:       Mirco Ackermann
 # Datum:       19.08.2026
@@ -28,6 +29,8 @@ library(lubridate)
 library(dplyr)
 
 options(lidR.progress = FALSE)
+rm(list = ls())
+gc()
 start_time <- now()
 print(paste0("Start: ", start_time))
 
@@ -45,57 +48,22 @@ survey_area <- st_read(survey_area_fgdb_path, layer = survey_area_fcname)
 
 laz_parent_folder <- r"(A:\11_MasterThesis\01_DefStruktur\02_Data\03_ALS-Data\BEV_Data_ClipROI_Normalized)"
 
-# dataframe - output
-
-grid_02_completedata <- data.frame()
-grid_05_completedata <- data.frame()
-grid_1_completedata <- data.frame()
-
 # =============================================================
 # Funktionen
 # =============================================================
 
-calc_hmax <- function(las, grid, tile_size){
-  # Berechnet hmax pro Zelle eines grids und gibt das grid zurück, hmax ist dabei das 99% Höhenperzentil
-  
-  pm_hmax <- polygon_metrics(las, ~quantile(Z, probs = 0.99),geometry = grid)  # Berechne h_99 perzentil
-  grid[[paste0("hmax_", tile_size)]] <- pm_hmax$V1  # schreibe in Spalte
-  
-  return(grid)
-}
-
-calc_ground_penetration <- function(las, grid, column_prefix){
+calc_ground_hits <- function(las, grid, column_prefix){
   # Berechnet die Penetrationsrate zum Boden pro Zelle eines grids und gibt das grid zurück, braucht spalten-Präfix um die einzelnen Flugrichtungen auseinanderhalten zu können
   
-  # Punkte filtern
-  nlas_gp <- filter_ground(las)  # Nur Bodenpunkte 
-  nlas_lr <- filter_last(las)  # Nur Last Returns
+  # Bodenpunkte filtern
+  nlas_gp <- filter_ground(las)
   
   # Punkte zählen
   pm_gp <- polygon_metrics(nlas_gp, ~length(Z), geometry = grid)  # Zähle Bodenpunkte
-  pm_lr <- polygon_metrics(nlas_lr, ~length(Z), geometry = grid)  # Zähle alle last returns
+  pm_gp$V1[is.na(pm_gp$V1)] <- 0
   
-  # Bodenpenetrationsrate berechnen
-  
-  grid[[paste0(column_prefix, "_gp_rate")]] <- pm_gp$V1/pm_lr$V1
-  
-  return(grid)
-}
-
-calc_understory_penetration <- function(las, grid, hmax_attribute, column_prefix){
-  # Berechnet die Penetrationsrate in den unteren Kronenbereich pro Zelle eines grids und gibt das grid zurück
-  # Braucht hmax_attribute, die Spalte wo im las-file der hmax-wert für das entsprechende grid gespeichert ist. Ausserdem noch spalten-Präfix (siehe calc_ground_penetration)
-  
-  # Punkte filtern
-  nlas_lr <- filter_last(las)  # Nur Last Returns
-  pm_lr <- polygon_metrics(nlas_lr, ~length(Z), geometry = grid)  # Gesamtanzahl der last returns
-  
-  # hmax muss in eine fest benannte Spalte im LAS-File zwischengespeichert werden, da polygon_metrics den Spaltennamen nicht als variable übernehmen kann
-  nlas_lr <- add_attribute(nlas_lr, nlas_lr[[hmax_attribute]], "hmax_temp")
-  
-  # Penetrationsrate berechnen
-  pm_up <- polygon_metrics(nlas_lr, ~sum(Classification != 2L & Z < 0.3 * hmax_temp), geometry = grid)  # das query wird auf jeden Punkt angewandt und gibt eine Vektor mit TRUE/FALSE zurück. Die TRUE's werden von sum() addiert
-  grid[[paste0(column_prefix, "_up_rate")]] <- pm_up$V1/pm_lr$V1
+  # in binäre Daten umwandeln -> Wenn Anzahl Bodenpunkte > 0 dann: TRUE
+  grid[[paste0(column_prefix, "_groundhit")]] <- pm_gp$V1 > 0
   
   return(grid)
 }
@@ -112,7 +80,7 @@ for (i in survey_area$Nummer_Untersuchungsgebiet){
   
   # Check ob Ordner überhaupt existiert
   if (!file.exists(file.path(laz_parent_folder, i))){
-    print(paste0("Ordner ", file.path(laz_parent_folder, i), "existiert nicht. Berechnungen für dieses Gebiet übersprungen"))
+    print(paste0("Ordner ", file.path(laz_parent_folder, i), " existiert nicht. Berechnungen für dieses Gebiet übersprungen"))
     next
   }
   
@@ -152,156 +120,131 @@ for (i in survey_area$Nummer_Untersuchungsgebiet){
   
   print("...Gitterzellen erstellt")
   
-  # =============================================================
-  # hmax als fixen Referenzwert aus allen verfügbaren ALS-Punkten berechnen und in der Punktwolke abspeichern
-  # =============================================================
-  
-  # Pfade für beide Ausrichtungen setzen
-  dir_1_path <- file.path(laz_parent_folder, i, "Richtung_1")
-  dir_2_path <- file.path(laz_parent_folder, i, "Richtung_2")
-  dir_1_filelist <- list.files(dir_1_path, full.names = TRUE, pattern = "\\.laz$")
-  dir_2_filelist <- list.files(dir_2_path, full.names = TRUE, pattern = "\\.laz$")
-  
-  # Alle verfügbaren LAS-Files der Survey Area ins Memory einlesen
-  nlaz_total <- readALSLAS(c(dir_1_filelist, dir_2_filelist))
-  
-  # hmax pro Grid berechnen
-  grid_02 <- calc_hmax(nlaz_total, grid_02, "02")
-  grid_05 <- calc_hmax(nlaz_total, grid_05, "05")
-  grid_1 <- calc_hmax(nlaz_total, grid_1, "1")
-  
-  # Nach hmax-Kalkulation nlaz_total löschen und Memory freigeben
-  rm(nlaz_total)
-  gc()
-  
-  print("... hmax berechnet")
-  
-  # Um als fixer Referenzwert zur Verfügung zu stehen, wird hmax für jede grid-Grösse direkt in die pro Fluglinie separat abgelegte Punktwolke geschrieben
-  # Jedes laz-file hat so pro Punkt noch die hmax-Werte des 0.1m-, 0.5m-, und 1m-Gitters gespeichert. Dies wird benötigt, weil spätere Kalkulationen nur auf Attribute
-  # innerhalb der Punktwolke zugreifen können
-  for (file in c(dir_1_filelist,dir_2_filelist)){
-    temp_laz <- readALSLAS(file)
-    temp_laz <- merge_spatial(temp_laz, grid_02, "hmax_02")
-    temp_laz <- merge_spatial(temp_laz, grid_05, "hmax_05")
-    temp_laz <- merge_spatial(temp_laz, grid_1, "hmax_1")
-    
-    # Um im laz-file verfügbar zu sein, muss das Attribut auch in den header geschrieben werden
-    temp_laz <- add_lasattribute(temp_laz, name = "hmax_02", desc = "99th height percentile, 0.2m tile")
-    temp_laz <- add_lasattribute(temp_laz, name = "hmax_05", desc = "99th height percentile, 0.5m tile")
-    temp_laz <- add_lasattribute(temp_laz, name = "hmax_1", desc = "99th height percentile, 1m tile")
-    
-    # Direkt in das eingelesene File schreiben
-    writeLAS(temp_laz, file)
-  }
-  
-  # nach Kalkulation temp_laz löschen und Memory freigeben
-  rm(temp_laz)
-  gc()
-  print("... und geschrieben")
+
   # =============================================================
   # Auswahl Fluglinien und Berechnung der Metriken
   # =============================================================
   
   # -------------------------------------------------------------
   # Für Parallelflüge
-  # laz-files einlesen, die jetzt hmax-werte pro Punkt und Grid-grösse gespeichert
-  direction_1 <- dir_1_filelist
-  direction_2 <- dir_2_filelist
-  nlaz_parallel_1 <- readALSLAS(direction_1)
-  nlaz_parallel_2 <- readALSLAS(direction_2)
+  # Pfade für beide Ausrichtungen setzen
+  dir_1_path <- file.path(laz_parent_folder, i, "Richtung_1")
+  dir_2_path <- file.path(laz_parent_folder, i, "Richtung_2")
   
-  # Ground Penetration Parallel 1 berechnen
-  grid_02 <- calc_ground_penetration(nlaz_parallel_1, grid_02, "parallel_1")
-  grid_05 <- calc_ground_penetration(nlaz_parallel_1, grid_05, "parallel_1")
-  grid_1 <- calc_ground_penetration(nlaz_parallel_1, grid_1, "parallel_1")
+  direction_1_path <- list.files(dir_1_path, full.names = TRUE, pattern = "\\.laz$")
+  direction_2_path <- list.files(dir_2_path, full.names = TRUE, pattern = "\\.laz$")
   
-  # Ground Penetration Parallel 2 berechnen
-  grid_02 <- calc_ground_penetration(nlaz_parallel_2, grid_02, "parallel_2")
-  grid_05 <- calc_ground_penetration(nlaz_parallel_2, grid_05, "parallel_2")
-  grid_1 <- calc_ground_penetration(nlaz_parallel_2, grid_1, "parallel_2")
+  # laz-files einlesen
+  nlaz_parallel_1 <- readALSLAS(direction_1_path)
+  nlaz_parallel_2 <- readALSLAS(direction_2_path)
   
-  print("...ground penetration rate für Parallelflüge berechnet")
+  # Ground Hits Parallel 1 berechnen
+  grid_02 <- calc_ground_hits(nlaz_parallel_1, grid_02, "parallel_1")
+  grid_05 <- calc_ground_hits(nlaz_parallel_1, grid_05, "parallel_1")
+  grid_1 <- calc_ground_hits(nlaz_parallel_1, grid_1, "parallel_1")
   
-  # Understory Penetration Parallel 1 berechnen
-  grid_02 <- calc_understory_penetration(nlaz_parallel_1, grid_02, "hmax_02", "parallel_1")
-  grid_05 <- calc_understory_penetration(nlaz_parallel_1, grid_05, "hmax_05", "parallel_1")
-  grid_1 <- calc_understory_penetration(nlaz_parallel_1, grid_1, "hmax_1", "parallel_1")
+  # Ground Hits Parallel 2 berechnen
+  grid_02 <- calc_ground_hits(nlaz_parallel_2, grid_02, "parallel_2")
+  grid_05 <- calc_ground_hits(nlaz_parallel_2, grid_05, "parallel_2")
+  grid_1 <- calc_ground_hits(nlaz_parallel_2, grid_1, "parallel_2")
   
-  # Understory Penetration Parallel 2 berechnen
-  grid_02 <- calc_understory_penetration(nlaz_parallel_2, grid_02, "hmax_02", "parallel_2")
-  grid_05 <- calc_understory_penetration(nlaz_parallel_2, grid_05, "hmax_05", "parallel_2")
-  grid_1 <- calc_understory_penetration(nlaz_parallel_2, grid_1, "hmax_1", "parallel_2")
+  print("...ground hits für Parallelflüge berechnet")
   
-  print("...understory penetration rate für Parallelflüge berechnet")
+  # Memory freigeben
+  rm(nlaz_parallel_1,nlaz_parallel_2)
+  gc()
   
   # -------------------------------------------------------------
-  # Für Kreuzflüge
-  
-  # Kreuzpaare zusammensetzen
-  if (length(direction_1) == 2){
-    cross_1 <- c(direction_1[1], direction_2[2])
-    cross_2 <- c(direction_1[2], direction_2[1])
-  } else if (length(direction_1) == 4){
-    cross_1 <- c(direction_1[1], direction_1[3], direction_2[2], direction_2[4])
-    cross_2 <- c(direction_1[2], direction_1[4], direction_2[1], direction_2[3])
-  } else {
-    print(paste0("Fehler in Untersuchungsgebiet ", i, ". Anzahl Linien nicht 2 oder 4"))
-    next
+  # Für Kreuzflüge mit 2 Linien pro Richtung (jede Kombination 1 mal)
+  if (length(direction_1_path) == 2){
+    counter_path_1 <- 0
+    for (path_1 in direction_1_path){
+      counter_path_1 <- counter_path_1 + 1
+      counter_path_2 <- 0
+      for (path_2 in direction_2_path){
+        counter_path_2 <- counter_path_2 + 1
+        
+        cross <- c(path_1, path_2)  # Kreuzpaar zusammenstellen
+        
+        nlaz_cross <- readALSLAS(cross)  # las-files einlesen
+        
+        # Ground Hits Kreuz berechnen
+        grid_02 <- calc_ground_hits(nlaz_cross, grid_02, paste0("kreuz_",counter_path_1,"_",counter_path_2))
+        grid_05 <- calc_ground_hits(nlaz_cross, grid_05, paste0("kreuz_",counter_path_1,"_",counter_path_2))
+        grid_1 <- calc_ground_hits(nlaz_cross, grid_1, paste0("kreuz_",counter_path_1,"_",counter_path_2))
+      }
+    }
   }
   
-  # laz-files einlesen, die jetzt hmax-werte pro Punkt aufweisen
-  nlaz_cross_1 <- readALSLAS(cross_1)
-  nlaz_cross_2 <- readALSLAS(cross_2)
+  # Memory freigeben
   
-  # Ground Penetration Kreuz 1 berechnen
-  grid_02 <- calc_ground_penetration(nlaz_cross_1, grid_02, "kreuz_1")
-  grid_05 <- calc_ground_penetration(nlaz_cross_1, grid_05, "kreuz_1")
-  grid_1 <- calc_ground_penetration(nlaz_cross_1, grid_1, "kreuz_1")
   
-  # Ground Penetration Kreuz 2 berechnen
-  grid_02 <- calc_ground_penetration(nlaz_cross_2, grid_02, "kreuz_2")
-  grid_05 <- calc_ground_penetration(nlaz_cross_2, grid_05, "kreuz_2")
-  grid_1 <- calc_ground_penetration(nlaz_cross_2, grid_1, "kreuz_2")
+  # Für Kreuzflüge mit 4 Linien pro Richtung (jede Kombination 1 mal)
+  if (length(direction_1_path) == 4){
+    
+    berechnet <- c()  # Vektor für bereits berechnete Kombinationen (Linie 1/2 == Linie 2/2)
+    
+    for (a1 in seq_along(direction_1_path)){
+      for (a2 in seq_along(direction_1_path)){
+        
+        if (a1 == a2){  # gleiche Linien ausschliessen
+          next
+        }
+        
+        for (b1 in seq_along(direction_2_path)){
+          for (b2 in seq_along(direction_2_path)){
+            
+            if (b1 == b2){  # gleiche Linien ausschliessen
+              next
+            }
+            
+            
+            # prüfen ob Kombination bereits berechnet
+            schluessel <- paste0(paste(sort(c(a1, a2)), collapse = ""), "_",
+                                 paste(sort(c(b1, b2)), collapse = ""))
+            
+            if (schluessel %in% berechnet){  # Wenn Kombination bereits berechnet, ausschliessen
+              next
+            }
+            berechnet <- c(berechnet, schluessel)
+            
+            cross <- c(direction_1_path[c(a1, a2)], direction_2_path[c(b1, b2)])  # Kreuzpaar zusammenstellen
+            
+            nlaz_cross <- readALSLAS(cross)  # las-files einlesen
+            
+            # Ground Hits Kreuz berechnen
+            grid_02 <- calc_ground_hits(nlaz_cross, grid_02, paste0("kreuz_",schluessel))
+            grid_05 <- calc_ground_hits(nlaz_cross, grid_05, paste0("kreuz_",schluessel))
+            grid_1 <- calc_ground_hits(nlaz_cross, grid_1, paste0("kreuz_",schluessel))
+          }
+        }
+      }
+    }
+  }
   
-  print("...ground penetration rate für Kreuzflüge berechnet")
+  # Memory freigeben
+  rm(nlaz_cross)
+  gc()
   
-  # Understory Penetration Kreuz 1 berechnen
-  grid_02 <- calc_understory_penetration(nlaz_cross_1, grid_02, "hmax_02", "kreuz_1")
-  grid_05 <- calc_understory_penetration(nlaz_cross_1, grid_05, "hmax_05", "kreuz_1")
-  grid_1 <- calc_understory_penetration(nlaz_cross_1, grid_1, "hmax_1", "kreuz_1")
-  
-  # Understory Penetration Kreuz 2 berechnen
-  grid_02 <- calc_understory_penetration(nlaz_cross_2, grid_02, "hmax_02", "kreuz_2")
-  grid_05 <- calc_understory_penetration(nlaz_cross_2, grid_05, "hmax_05", "kreuz_2")
-  grid_1 <- calc_understory_penetration(nlaz_cross_2, grid_1, "hmax_1", "kreuz_2")
-  
-  print("...understory penetration rate für Kreuzflüge berechnet")
+  print("...ground hits für Kreuzflüge berechnet")
   
   # =============================================================
   # Output pro Zellengrösse in data.frame schreiben
   # =============================================================
   
-  grid_02_completedata <- rbind(grid_02_completedata, grid_02)
-  grid_05_completedata <- rbind(grid_05_completedata, grid_05)
-  grid_1_completedata <- rbind(grid_1_completedata, grid_1)
-  
-  # Für den Fall eines Programmabbruchs wird zusätzlich jedes File einzeln geschrieben
+  # output file als data.frame speichern
   save(grid_02, file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen\output_03_calculate_metrics)", paste0(i, "_grid_02.Rda")))
   save(grid_05, file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen\output_03_calculate_metrics)", paste0(i, "_grid_05.Rda")))
   save(grid_1, file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen\output_03_calculate_metrics)", paste0(i, "_grid_1.Rda")))
+  
+  # Memory freigeben
+  rm(grid_02, grid_05, grid_1, grid_02_sfc, grid_05_sfc, grid_1_sfc, grid_02_sfc_selected, grid_05_sfc_selected, grid_1_sfc_selected)
+  gc()
   
   end_time_loop <- now()
   print(paste0("...fertig mit Gebiet Nr. ", i, " in ", round(as.numeric(difftime(end_time_loop, start_time_loop, units = "mins")), 2), " min"))
   
 }
-
-# =============================================================
-# Dataframe auf Festplatte speichern
-# =============================================================
-
-save(grid_02_completedata,file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen\output_03_calculate_metrics)", "00_complete_grid_02.Rda"))
-save(grid_05_completedata,file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen\output_03_calculate_metrics)", "00_complete_grid_05.Rda"))
-save(grid_1_completedata,file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen\output_03_calculate_metrics)", "00_complete_grid_1.Rda"))
 
 end_time <- now()
 print(paste0("Endzeit: ", end_time))

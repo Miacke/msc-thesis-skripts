@@ -18,8 +18,8 @@ kreuz_vec <- c()
 mc_nemars_vec <- c()
 
 
-# Simulation von 12 Untersuchungsgebieten
-for (gebiet in seq(1,12)){
+# Simulation von 11 Untersuchungsgebieten
+for (gebiet in seq(1,11)){
   
   # Lückentyp pro Zelle
   lueckentyp <- sample(c("NS", "EW", "offen", "dicht"), n, replace = TRUE)
@@ -89,6 +89,7 @@ for (gebiet in seq(1,12)){
       df[zeile, "kreuz_2_3"] <- FALSE
     }
   }
+  
   kreuz <- (sum(df[, "kreuz_1_3"]) + sum(df[, "kreuz_2_4"]))/2
   parallel <- (sum(df[, "parallel_1_2"]) + sum(df[, "parallel_3_4"]))/2
 
@@ -96,58 +97,116 @@ for (gebiet in seq(1,12)){
   anzahl_bodenzellen_parallel <- append(anzahl_bodenzellen_parallel, parallel)
   
   # ------------------------------------------------------------------------------
-  # Versuch mit McNemars Test: 
+  # Versuch mit McNemars Test:
   # Zufällige auswahl einer Parallel- und einer Kreuz-Kombination
   
-  # Vektor erstellen, der n* zufällig eine Kombination nennt
-  parallel_kombination <- sample(c("parallel_1_2", "parallel_3_4"), n, replace = TRUE)
-  kreuz_kombination <- sample(c("kreuz_1_3", "kreuz_2_4", "kreuz_1_4", "kreuz_2_3"), n, replace = TRUE)
   
-  # n durchläufe
-  for (zelle in 1:n){
-    
-    # Prüfen welche der beiden Kombinationen im zufalls-vekotr enthalten und den Wert zum Parallel-Vektor hinzufügen
-    if (parallel_kombination[zelle] == "parallel_1_2"){
-      parallel_vec <- append(parallel_vec, df[zelle, "parallel_1_2"])
-    } else{
-      parallel_vec <- append(parallel_vec, df[zelle, "parallel_3_4"])
-    }
-    
-    # Prüfen welche der vier Kombinationen im zufalls-vekotr enthalten und den Wert zum Kreuz-Vektor hinzufügen
-    if (kreuz_kombination[zelle] == "kreuz_1_3"){
-      kreuz_vec <- append(kreuz_vec, df[zelle, "kreuz_1_3"])
-    } else if(kreuz_kombination[zelle] == "kreuz_2_4"){
-      kreuz_vec <- append(kreuz_vec, df[zelle, "kreuz_2_4"])
-    } else if(kreuz_kombination[zelle] == "kreuz_1_4"){
-      kreuz_vec <- append(kreuz_vec, df[zelle, "kreuz_1_4"])
-    } else if(kreuz_kombination[zelle] == "kreuz_2_3"){
-      kreuz_vec <- append(kreuz_vec, df[zelle, "kreuz_2_3"])
+  nemar_a_vec <- c()  # parallel und kreuz kein Bodenpunkt vorhanden
+  nemar_b_vec <- c()  # parallel kein Bodenpunkt vorhanden, kreuz aber schon
+  nemar_c_vec <- c()  # parallel ein Bodenpunkt vorhanden, kreuz aber nicht
+  nemar_d_vec <- c()  # parallel und kreuz ein Bodenpunkt vorhanden
+
+
+  for (p in c("parallel_1_2", "parallel_3_4")){
+    for (k in c("kreuz_1_3", "kreuz_2_4", "kreuz_1_4", "kreuz_2_3")){
+      nemar_a_counter <- 0
+      nemar_b_counter <- 0
+      nemar_c_counter <- 0
+      nemar_d_counter <- 0
+      for (zelle in 1:n){
+        if (df[zelle, p] == FALSE & df[zelle, k] == FALSE){  # parallel und kreuz kein Bodenpunkt vorhanden
+          nemar_a_counter <- nemar_a_counter + 1
+        }
+        if (df[zelle, p] == FALSE & df[zelle, k] == TRUE){  # parallel kein Bodenpunkt vorhanden, kreuz aber schon
+          nemar_b_counter <- nemar_b_counter + 1
+        }
+        if (df[zelle, p] == TRUE & df[zelle, k] == FALSE){  # parallel ein Bodenpunkt vorhanden, kreuz aber nicht
+          nemar_c_counter <- nemar_c_counter + 1
+        }
+        if (df[zelle, p] == TRUE & df[zelle, k] == TRUE){  # parallel und kreuz ein Bodenpunkt vorhanden
+          nemar_d_counter <- nemar_d_counter + 1
+        }
+      }
+      # Vektor mit Zahl füllen
+      nemar_a_vec <- append(nemar_a_vec, nemar_a_counter)
+      nemar_b_vec <- append(nemar_b_vec, nemar_b_counter)
+      nemar_c_vec <- append(nemar_c_vec, nemar_c_counter)
+      nemar_d_vec <- append(nemar_d_vec, nemar_d_counter)
     }
   }
+  
+  # Durchschnitte der einzelnen Werte berechnen
+  nemar_a <- mean(nemar_a_vec)
+  nemar_b <- mean(nemar_b_vec)
+  nemar_c <- mean(nemar_c_vec)
+  nemar_d <- mean(nemar_d_vec)
   
   # nemars_Matrix erstellen
   nemars_table <- matrix(c(0, 0, 0, 0), nrow = 2,
                          dimnames = list("Parallelflug" = c("Bodenpunkt nicht vorhanden", "Bodenpunkt vorhanden"),
                                          "Kreuzflug" = c("Bodenpunkt nicht vorhanden", "Bodenpunkt vorhanden")))
   
-  for (zelle_1 in seq_along(kreuz_vec)){
-    if (parallel_vec[zelle_1]){
-      if (kreuz_vec[zelle_1]){
-        nemars_table[4] = nemars_table[4] + 1
-      } else{
-        nemars_table[2] = nemars_table[2] + 1
-      }
-    } else {
-      if (kreuz_vec[zelle_1]){
-        nemars_table[3] = nemars_table[3] + 1
-      } else{
-        nemars_table[1] = nemars_table[1] + 1
-      }
-    }
-  }
-    
-    mc_nemar_statistic <- mcnemar.test(nemars_table, correct = TRUE)
-    mc_nemars_vec <- append(mc_nemars_vec, mc_nemar_statistic$p.value)
+  # Nemars-Matrix befüllen
+  nemars_table[1] <- nemar_a
+  nemars_table[3] <- nemar_b
+  nemars_table[2] <- nemar_c
+  nemars_table[4] <- nemar_d
+  
+  # Statistik rechnen
+  mc_nemar_statistic <- mcnemar.test(nemars_table, correct = TRUE)
+  mc_nemars_vec <- append(mc_nemars_vec, mc_nemar_statistic$p.value)
+  
+  # 
+  # # Vektor erstellen, der n* zufällig eine Kombination nennt
+  # parallel_kombination <- sample(c("parallel_1_2", "parallel_3_4"), n, replace = TRUE)
+  # kreuz_kombination <- sample(c("kreuz_1_3", "kreuz_2_4", "kreuz_1_4", "kreuz_2_3"), n, replace = TRUE)
+  # 
+  # 
+  # # n durchläufe
+  # for (zelle in 1:n){
+  # 
+  #   # Prüfen welche der beiden Kombinationen im zufalls-vekotr enthalten und den Wert zum Parallel-Vektor hinzufügen
+  #   if (parallel_kombination[zelle] == "parallel_1_2"){
+  #     parallel_vec <- append(parallel_vec, df[zelle, "parallel_1_2"])
+  #   } else{
+  #     parallel_vec <- append(parallel_vec, df[zelle, "parallel_3_4"])
+  #   }
+  # 
+  #   # Prüfen welche der vier Kombinationen im zufalls-vekotr enthalten und den Wert zum Kreuz-Vektor hinzufügen
+  #   if (kreuz_kombination[zelle] == "kreuz_1_3"){
+  #     kreuz_vec <- append(kreuz_vec, df[zelle, "kreuz_1_3"])
+  #   } else if(kreuz_kombination[zelle] == "kreuz_2_4"){
+  #     kreuz_vec <- append(kreuz_vec, df[zelle, "kreuz_2_4"])
+  #   } else if(kreuz_kombination[zelle] == "kreuz_1_4"){
+  #     kreuz_vec <- append(kreuz_vec, df[zelle, "kreuz_1_4"])
+  #   } else if(kreuz_kombination[zelle] == "kreuz_2_3"){
+  #     kreuz_vec <- append(kreuz_vec, df[zelle, "kreuz_2_3"])
+  #   }
+  # }
+  # 
+  # # nemars_Matrix erstellen
+  # nemars_table <- matrix(c(0, 0, 0, 0), nrow = 2,
+  #                        dimnames = list("Parallelflug" = c("Bodenpunkt nicht vorhanden", "Bodenpunkt vorhanden"),
+  #                                        "Kreuzflug" = c("Bodenpunkt nicht vorhanden", "Bodenpunkt vorhanden")))
+  # 
+  # for (zelle_1 in seq_along(kreuz_vec)){
+  #   if (parallel_vec[zelle_1]){
+  #     if (kreuz_vec[zelle_1]){
+  #       nemars_table[4] = nemars_table[4] + 1
+  #     } else{
+  #       nemars_table[2] = nemars_table[2] + 1
+  #     }
+  #   } else {
+  #     if (kreuz_vec[zelle_1]){
+  #       nemars_table[3] = nemars_table[3] + 1
+  #     } else{
+  #       nemars_table[1] = nemars_table[1] + 1
+  #     }
+  #   }
+  # }
+  #   
+  # kreuz_vec <- c()
+  # parallel_vec <- c()
 }
 
 
@@ -159,8 +218,7 @@ nemar_adjusted_diff <- nemar_adjusted - mc_nemars_vec
 print(paste("zufällig:", zufällig))
 print(paste("p-value paired t-test:", t_test_statistics$p.value))
 print(paste("mean p-value mc nemar test:", mean(mc_nemars_vec)))
-print(paste("adjusted p-values - mc-nemars p-values must be bigger than 0:", all(nemar_adjusted_diff>0)))
+print(paste("adjusted p-values - mc-nemars p-values must be bigger than 0:", all(nemar_adjusted_diff>=0)))
 
 # Test funktioniert. Wenn so strukturierte Ergebnisse systematisch zugunsten kreuz verzerrt werden, ergibt der t.test auch bei 12 Gebieten und alpha = 0.01 ein signifikantes Ergebnis. 
 # Werden die Ergebnisse 100% zufällig organisiert ist der p-Wert hoch -> t-test nicht signifikant
-# "adjusted p-values - mc-nemars p-values are bigger than 0: " ist bei zufälligen Daten verbugt

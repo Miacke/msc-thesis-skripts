@@ -23,14 +23,85 @@
 # ============================================================
 
 library(dplyr)
+library(sf)
 
-# Berechnung des t-wertes (Beispieldaten)
+# Pfad zu den Daten
+path <- r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen\output_03_calculate_metrics)"
 
-vec_1 <- runif(n=12, min = 5000, max = 50000)
-vec_2 <- runif(n=12, min = 10000, max = 80000)
+# Daten einlesen
+path_grid_02 <- file.path(path, "4_grid_02.Rda")
+path_grid_05 <- file.path(path, "4_grid_05.Rda")
+path_grid_1 <- file.path(path, "4_grid_1.Rda")
 
 
-vec_diff <- vec_2 - vec_1
-shapiro.test(vec_diff)
+load(path_grid_02)
+load(path_grid_05)
+load(path_grid_1)
 
-t.test(vec_1, vec_2, paired = TRUE, conf.level = 0.99)
+grids <- list(grid_02 = grid_02, grid_05 = grid_05, grid_1 = grid_1)
+results <- list()
+p_value_vec <- c()
+
+# zufällige Kombinationen
+for (name in names(grids)){
+  for (i in 1:50){
+    set.seed(i)
+    # grid <- grids[[name]]
+    n <- nrow(grid)
+    
+    parallel_sample <- sample(c("parallel_1_groundhit", "parallel_2_groundhit"), n, replace = TRUE)
+    cross_sample <- sample(c("kreuz_1_1_groundhit", "kreuz_1_2_groundhit", "kreuz_2_1_groundhit", "kreuz_2_2_groundhit"), n, replace = TRUE)
+    
+    # ------------------------------------------------------------------------------
+    # McNemars Test:
+    
+    nemar_a <- 0  # parallel und kreuz kein Bodenpunkt vorhanden
+    nemar_b <- 0  # parallel kein Bodenpunkt vorhanden, kreuz aber schon
+    nemar_c <- 0  # parallel ein Bodenpunkt vorhanden, kreuz aber nicht
+    nemar_d <- 0  # parallel und kreuz ein Bodenpunkt vorhanden
+    
+    for (row in seq_len(n)){
+      parallel_col <- parallel_sample[row]
+      cross_col <- cross_sample[row]
+      
+      # Zuweisung in der Nemar-Tabelle
+      if (grid[[parallel_col]][row] == FALSE & grid[[cross_col]][row] == FALSE){  # parallel und kreuz kein Bodenpunkt vorhanden
+        nemar_a <- nemar_a + 1
+      }
+      if (grid[[parallel_col]][row] == FALSE & grid[[cross_col]][row] == TRUE){  # parallel kein Bodenpunkt vorhanden, kreuz aber schon
+        nemar_b <- nemar_b + 1
+      }
+      if (grid[[parallel_col]][row] == TRUE & grid[[cross_col]][row] == FALSE){  # parallel ein Bodenpunkt vorhanden, kreuz aber nicht
+        nemar_c <- nemar_c + 1
+      }
+      if (grid[[parallel_col]][row] == TRUE & grid[[cross_col]][row] == TRUE){  # parallel und kreuz ein Bodenpunkt vorhanden
+        nemar_d <- nemar_d + 1
+      }
+      
+      if ((row %% 100000)==0){
+        progress <- round((row/n) * 100)
+        print(paste("Fortschritt: ", progress, "%"))
+      }
+    }
+  
+    # nemars_Matrix erstellen
+    nemars_table <- matrix(c(0, 0, 0, 0), nrow = 2,
+                           dimnames = list("Parallelflug" = c("Bodenpunkt nicht vorhanden", "Bodenpunkt vorhanden"),
+                                           "Kreuzflug" = c("Bodenpunkt nicht vorhanden", "Bodenpunkt vorhanden")))
+    
+    # Nemars-Matrix befüllen
+    nemars_table[1] <- nemar_a
+    nemars_table[3] <- nemar_b
+    nemars_table[2] <- nemar_c
+    nemars_table[4] <- nemar_d
+    
+    # Statistik rechnen
+    mc_nemar_statistic <- mcnemar.test(nemars_table, correct = TRUE)
+    p_value_vec <- append(p_value_vec, mc_nemar_statistic$p.value)
+  }
+}
+
+
+st_write(grid_02, file.path(path, "4_grids.gpkg"), layer = "grid_02", delete_layer = TRUE)
+st_write(grid_05, file.path(path, "4_grids.gpkg"), layer = "grid_05", delete_layer = TRUE)
+st_write(grid_1,  file.path(path, "4_grids.gpkg"), layer = "grid_1",  delete_layer = TRUE)
