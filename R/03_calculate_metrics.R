@@ -39,31 +39,37 @@ print(paste0("Start: ", start_time))
 # =============================================================
 
 # Untersuchungsgebiete
-
-survey_area_fgdb_path <- r"(A:\11_MasterThesis\01_DefStruktur\06_GIS\MasterThesis_Datenanalyse\MasterThesis_Datenanalyse.gdb)"
-survey_area_fcname <- r"(survey_area_WALD_HUELLE_MANUELL)"
+survey_area_fgdb_path <- r"(A:\11_MasterThesis\01_DefStruktur\02_Data\02_Survey_areas\SURVEY_AREA_MSCTHESIS.gdb)"
+survey_area_fcname <- "survey_area_final"
 survey_area <- st_read(survey_area_fgdb_path, layer = survey_area_fcname)
 
 # LAZ-Files
+laz_parent_folder <- r"(A:\11_MasterThesis\01_DefStruktur\02_Data\03_ALS-Data\BEV_Data_02)"
 
-laz_parent_folder <- r"(A:\11_MasterThesis\01_DefStruktur\02_Data\03_ALS-Data\BEV_Data_ClipROI_Normalized)"
+# Fluglinien
+flightlines <- st_read(survey_area_fgdb_path, layer = "Fluglinien")
 
 # =============================================================
 # Funktionen
 # =============================================================
 
-calc_ground_hits <- function(las, grid, column_prefix){
-  # Berechnet die Penetrationsrate zum Boden pro Zelle eines grids und gibt das grid zurück, braucht spalten-Präfix um die einzelnen Flugrichtungen auseinanderhalten zu können
+calc_line_metrics <- function(las,grid,column_prefix,cellsize){
   
-  # Bodenpunkte filtern
-  nlas_gp <- filter_ground(las)
+  # metriken pro polygon berechnen und in sf-Objekt (pm) speichern
+  pm <- polygon_metrics(las, ~list(
+    sa_min = min(ScanAngle),
+    sa_max = max(ScanAngle),
+    n = length(Z),
+    n_gp = sum(Classification == 2L)
+  ), geometry = grid)
   
-  # Punkte zählen
-  pm_gp <- polygon_metrics(nlas_gp, ~length(Z), geometry = grid)  # Zähle Bodenpunkte
-  pm_gp$V1[is.na(pm_gp$V1)] <- 0
+  pm$n[is.na(pm$n)] <- 0  # NA zu 0
+  pm$n_gp[is.na(pm$n_gp)] <- 0
   
-  # in binäre Daten umwandeln -> Wenn Anzahl Bodenpunkte > 0 dann: TRUE
-  grid[[paste0(column_prefix, "_groundhit")]] <- pm_gp$V1 > 0
+  grid[[paste0(column_prefix, "_sa_min")]]    <- pm$sa_min
+  grid[[paste0(column_prefix, "_sa_max")]]    <- pm$sa_max
+  grid[[paste0(column_prefix, "_dichte")]]    <- pm$n / (cellsize^2)
+  grid[[paste0(column_prefix, "_groundhit")]] <- pm$n_gp > 0
   
   return(grid)
 }
@@ -72,8 +78,8 @@ calc_ground_hits <- function(las, grid, column_prefix){
 # Gitterzellen für Untersuchungsgebiete erstellen
 # =============================================================
 
-for (i in survey_area$Nummer_Untersuchungsgebiet){
-  
+for (i in survey_area$SA_Nr){
+
   start_time_loop <- now()
   print("----------------------------------------------------------------------------------------------------------------------")
   print(paste0("Start bei Gebiet Nr.", i))
@@ -91,42 +97,38 @@ for (i in survey_area$Nummer_Untersuchungsgebiet){
   # }
   
   
-  current_survey_area <- dplyr::filter(survey_area, Nummer_Untersuchungsgebiet == i)
-  
+  current_survey_area <- dplyr::filter(survey_area, SA_Nr == i)
+  start_time_grid <- now()
   # Gitter bilden (ergibt sfc-objekt -> reine Geometrie, ohne Attributentabelle)
   grid_1_sfc <- st_make_grid(current_survey_area, cellsize = 1)  
   grid_05_sfc <- st_make_grid(current_survey_area, cellsize = 0.5)
-  grid_02_sfc <- st_make_grid(current_survey_area, cellsize = 0.2)
-  
+
   # grid-Zellen selektieren die sich komplett in der survey_area befinden
   grid_1_sfc_selected <- spatial.select(current_survey_area, grid_1_sfc, predicate = "contains")
   grid_05_sfc_selected <- spatial.select(current_survey_area, grid_05_sfc, predicate = "contains")
-  grid_02_sfc_selected <- spatial.select(current_survey_area, grid_02_sfc, predicate = "contains")
   
   # Umwandlung der Gitterzellen in sf-Objekte
   grid_1 <- st_sf(geometry = grid_1_sfc_selected)
   grid_05 <- st_sf(geometry = grid_05_sfc_selected)
-  grid_02 <- st_sf(geometry = grid_02_sfc_selected)
-  
-  # Untersuchungsgebiet (i) jeder Zelle als neues Attribut zuweisen
-  grid_1$Nummer_Untersuchungsgebiet <- current_survey_area$Nummer_Untersuchungsgebiet
-  grid_05$Nummer_Untersuchungsgebiet <- current_survey_area$Nummer_Untersuchungsgebiet
-  grid_02$Nummer_Untersuchungsgebiet <- current_survey_area$Nummer_Untersuchungsgebiet
-  
-  # Eindeutiger Zellenidentifikator als neues Attribut zuweisen: "[Nummer_Untersuchungsgebiet]_[Forlaufende Nummerierung der Zellen]"
-  grid_1$ID <- paste0(current_survey_area$Nummer_Untersuchungsgebiet, "_", seq_len(nrow(grid_1)))
-  grid_05$ID <- paste0(current_survey_area$Nummer_Untersuchungsgebiet, "_", seq_len(nrow(grid_05)))
-  grid_02$ID <- paste0(current_survey_area$Nummer_Untersuchungsgebiet, "_", seq_len(nrow(grid_02)))
-  
-  print("...Gitterzellen erstellt")
-  
 
+  # Untersuchungsgebiet (i) jeder Zelle als neues Attribut zuweisen
+  grid_1$SA_Nr <- current_survey_area$SA_Nr
+  grid_05$SA_Nr <- current_survey_area$SA_Nr
+
+  # Eindeutiger Zellenidentifikator als neues Attribut zuweisen: "[SA_Nr]_[Forlaufende Nummerierung der Zellen]"
+  grid_1$ID <- paste0(current_survey_area$SA_Nr, "_", seq_len(nrow(grid_1)))
+  grid_05$ID <- paste0(current_survey_area$SA_Nr, "_", seq_len(nrow(grid_05)))
+  
+  # Zellzentren einmal pro Gebiet berechnen
+  zentren_05 <- st_centroid(st_geometry(grid_05))
+  zentren_1 <- st_centroid(st_geometry(grid_1))
+
+  print(paste("...Gitterzellen erstellt in", round(as.numeric(difftime(now(), start_time_grid, units = "mins")), 2), "min"))
+  
   # =============================================================
-  # Auswahl Fluglinien und Berechnung der Metriken
+  # pfade für Flugrichtungen setzen
   # =============================================================
   
-  # -------------------------------------------------------------
-  # Für Parallelflüge
   # Pfade für beide Ausrichtungen setzen
   dir_1_path <- file.path(laz_parent_folder, i, "Richtung_1")
   dir_2_path <- file.path(laz_parent_folder, i, "Richtung_2")
@@ -134,116 +136,100 @@ for (i in survey_area$Nummer_Untersuchungsgebiet){
   direction_1_path <- list.files(dir_1_path, full.names = TRUE, pattern = "\\.laz$")
   direction_2_path <- list.files(dir_2_path, full.names = TRUE, pattern = "\\.laz$")
   
-  # laz-files einlesen
-  nlaz_parallel_1 <- readALSLAS(direction_1_path)
-  nlaz_parallel_2 <- readALSLAS(direction_2_path)
+  # =============================================================
+  # Berechnung der Metriken pro Fluglinie
+  # =============================================================
   
-  # Ground Hits Parallel 1 berechnen
-  grid_02 <- calc_ground_hits(nlaz_parallel_1, grid_02, "parallel_1")
-  grid_05 <- calc_ground_hits(nlaz_parallel_1, grid_05, "parallel_1")
-  grid_1 <- calc_ground_hits(nlaz_parallel_1, grid_1, "parallel_1")
+  start_time_scanangles <- now()
+  for (fl in c(direction_1_path, direction_2_path)){
+    
+    # las file einer einzelnen linie einlesen
+    las <- readALSLAS(fl)
+    
+    # str_bez herauslesen (eindeutig über alle fluglinien)
+    linie <- tools::file_path_sans_ext(basename(fl))
+    
+    grid_05 <- calc_line_metrics(las, grid_05, paste0("L", linie), 0.5)
+    grid_1  <- calc_line_metrics(las, grid_1,  paste0("L", linie), 1)
+    rm(las); gc()
+    
+    # Abstand zur Fluglinie berechnen (da einzelne Zellen keine PUnkte haben und bei Scanangles dann NA steht)
+    geom_line <- flightlines[flightlines$STR_BEZ == linie, ]
+    grid_05[[paste0("L", linie, "_abstand")]] <- as.numeric(st_distance(zentren_05, geom_line))
+    grid_1[[paste0("L", linie, "_abstand")]]  <- as.numeric(st_distance(zentren_1,  geom_line))
+    
+    print(paste("... polygon-metrics berechnet für Linie", fl, "in", round(as.numeric(difftime(now(), start_time_scanangles, units = "mins")), 2), "min"))
+  }
   
-  # Ground Hits Parallel 2 berechnen
-  grid_02 <- calc_ground_hits(nlaz_parallel_2, grid_02, "parallel_2")
-  grid_05 <- calc_ground_hits(nlaz_parallel_2, grid_05, "parallel_2")
-  grid_1 <- calc_ground_hits(nlaz_parallel_2, grid_1, "parallel_2")
-  
-  print("...ground hits für Parallelflüge berechnet")
-  
-  # Memory freigeben
-  rm(nlaz_parallel_1,nlaz_parallel_2)
-  gc()
+
+  # =============================================================
+  # Pro Parallel und Kreuz-flug Metriken berechnen
+  # =============================================================
   
   # -------------------------------------------------------------
-  # Für Kreuzflüge mit 2 Linien pro Richtung (jede Kombination 1 mal)
-  if (length(direction_1_path) == 2){
-    counter_path_1 <- 0
-    for (path_1 in direction_1_path){
-      counter_path_1 <- counter_path_1 + 1
-      counter_path_2 <- 0
-      for (path_2 in direction_2_path){
-        counter_path_2 <- counter_path_2 + 1
-        
-        cross <- c(path_1, path_2)  # Kreuzpaar zusammenstellen
-        
-        nlaz_cross <- readALSLAS(cross)  # las-files einlesen
-        
-        # Ground Hits Kreuz berechnen
-        grid_02 <- calc_ground_hits(nlaz_cross, grid_02, paste0("kreuz_",counter_path_1,"_",counter_path_2))
-        grid_05 <- calc_ground_hits(nlaz_cross, grid_05, paste0("kreuz_",counter_path_1,"_",counter_path_2))
-        grid_1 <- calc_ground_hits(nlaz_cross, grid_1, paste0("kreuz_",counter_path_1,"_",counter_path_2))
-      }
+  # Parallelflüge
+  start_time_parallel <- now()
+  
+  # fluglinienkombinationen für Parallelflüge
+  p1_fl <- paste(tools::file_path_sans_ext(basename(direction_1_path)), collapse = ",")
+  p2_fl <- paste(tools::file_path_sans_ext(basename(direction_2_path)), collapse = ",")
+  
+  # fluglinienkombinationen für parallelflüge ins grid schreiben
+  grid_05$parallel_1_fl <- p1_fl
+  grid_1$parallel_1_fl  <- p1_fl
+  grid_05$parallel_2_fl <- p2_fl
+  grid_1$parallel_2_fl  <- p2_fl
+  
+  # groundhits für parallelflüge vereinigen und ins grid schreiben
+  grid_05$parallel_1_groundhit <- grid_05[[paste0("L",strsplit(p1_fl, ",")[[1]][1],"_groundhit")]] | grid_05[[paste0("L",strsplit(p1_fl, ",")[[1]][2],"_groundhit")]]  # groundhits pro fluglinie sind vorhanden, diese werden nur noch zusammengezählt
+  grid_05$parallel_2_groundhit <- grid_05[[paste0("L",strsplit(p2_fl, ",")[[1]][1],"_groundhit")]] | grid_05[[paste0("L",strsplit(p2_fl, ",")[[1]][2],"_groundhit")]]
+  grid_1$parallel_1_groundhit <- grid_1[[paste0("L",strsplit(p1_fl, ",")[[1]][1],"_groundhit")]] | grid_1[[paste0("L",strsplit(p1_fl, ",")[[1]][2],"_groundhit")]]
+  grid_1$parallel_2_groundhit <- grid_1[[paste0("L",strsplit(p2_fl, ",")[[1]][1],"_groundhit")]] | grid_1[[paste0("L",strsplit(p2_fl, ",")[[1]][2],"_groundhit")]]
+  
+  print(paste("Parallelflüge berechnet in", round(as.numeric(difftime(now(), start_time_parallel, units = "mins")), 2), "min"))
+  
+  # -------------------------------------------------------------
+  # Kreuzlflüge
+  start_time_cross <- now()
+  counter_path_1 <- 0
+  for (path_1 in direction_1_path){
+    counter_path_1 <- counter_path_1 + 1
+    counter_path_2 <- 0
+    for (path_2 in direction_2_path){
+      counter_path_2 <- counter_path_2 + 1
+      
+      # Kreuzpaar zusammenstellen
+      cross <- c(path_1, path_2)
+      
+      # Fluglinienkombination ins grid schreiben
+      cross_col <- paste0("kreuz_", counter_path_1, "_", counter_path_2)
+      cross_fl <- paste(tools::file_path_sans_ext(basename(cross)), collapse = ",")
+      grid_05[[paste0(cross_col, "_fl")]] <- cross_fl
+      grid_1[[paste0(cross_col, "_fl")]]  <- cross_fl
+      
+      # groundhits für kreuzflüge vereinigen und ins grid schreiben
+      grid_05[[paste0(cross_col,"_groundhit")]] <- grid_05[[paste0("L",strsplit(cross_fl, ",")[[1]][1],"_groundhit")]] | grid_05[[paste0("L",strsplit(cross_fl, ",")[[1]][2],"_groundhit")]]
+      grid_1[[paste0(cross_col,"_groundhit")]] <- grid_1[[paste0("L",strsplit(cross_fl, ",")[[1]][1],"_groundhit")]] | grid_1[[paste0("L",strsplit(cross_fl, ",")[[1]][2],"_groundhit")]]
+      
     }
   }
+  print(paste("Kreuzflüge berechnet", round(as.numeric(difftime(now(), start_time_cross, units = "mins")), 2), "min"))
   
-  # Memory freigeben
-  
-  
-  # Für Kreuzflüge mit 4 Linien pro Richtung (jede Kombination 1 mal)
-  if (length(direction_1_path) == 4){
-    
-    berechnet <- c()  # Vektor für bereits berechnete Kombinationen (Linie 1/2 == Linie 2/2)
-    
-    for (a1 in seq_along(direction_1_path)){
-      for (a2 in seq_along(direction_1_path)){
-        
-        if (a1 == a2){  # gleiche Linien ausschliessen
-          next
-        }
-        
-        for (b1 in seq_along(direction_2_path)){
-          for (b2 in seq_along(direction_2_path)){
-            
-            if (b1 == b2){  # gleiche Linien ausschliessen
-              next
-            }
-            
-            
-            # prüfen ob Kombination bereits berechnet
-            schluessel <- paste0(paste(sort(c(a1, a2)), collapse = ""), "_",
-                                 paste(sort(c(b1, b2)), collapse = ""))
-            
-            if (schluessel %in% berechnet){  # Wenn Kombination bereits berechnet, ausschliessen
-              next
-            }
-            berechnet <- c(berechnet, schluessel)
-            
-            cross <- c(direction_1_path[c(a1, a2)], direction_2_path[c(b1, b2)])  # Kreuzpaar zusammenstellen
-            
-            nlaz_cross <- readALSLAS(cross)  # las-files einlesen
-            
-            # Ground Hits Kreuz berechnen
-            grid_02 <- calc_ground_hits(nlaz_cross, grid_02, paste0("kreuz_",schluessel))
-            grid_05 <- calc_ground_hits(nlaz_cross, grid_05, paste0("kreuz_",schluessel))
-            grid_1 <- calc_ground_hits(nlaz_cross, grid_1, paste0("kreuz_",schluessel))
-          }
-        }
-      }
-    }
-  }
-  
-  # Memory freigeben
-  rm(nlaz_cross)
-  gc()
-  
-  print("...ground hits für Kreuzflüge berechnet")
   
   # =============================================================
   # Output pro Zellengrösse in data.frame schreiben
   # =============================================================
   
   # output file als data.frame speichern
-  save(grid_02, file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen\output_03_calculate_metrics)", paste0(i, "_grid_02.Rda")))
-  save(grid_05, file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen\output_03_calculate_metrics)", paste0(i, "_grid_05.Rda")))
-  save(grid_1, file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen\output_03_calculate_metrics)", paste0(i, "_grid_1.Rda")))
+  save(grid_05, file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen\03_calculate_metrics)", paste0(i, "_grid_05.Rda")))
+  save(grid_1, file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen\03_calculate_metrics)", paste0(i, "_grid_1.Rda")))
   
   # Memory freigeben
-  rm(grid_02, grid_05, grid_1, grid_02_sfc, grid_05_sfc, grid_1_sfc, grid_02_sfc_selected, grid_05_sfc_selected, grid_1_sfc_selected)
+  rm(grid_05, grid_1, grid_05_sfc, grid_1_sfc, grid_05_sfc_selected, grid_1_sfc_selected)
   gc()
   
   end_time_loop <- now()
   print(paste0("...fertig mit Gebiet Nr. ", i, " in ", round(as.numeric(difftime(end_time_loop, start_time_loop, units = "mins")), 2), " min"))
-  
 }
 
 end_time <- now()

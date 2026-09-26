@@ -2,7 +2,7 @@
 # 00_LAZ_Checks.R
 # ============================================================
 # Beschreibung:
-#   Diverse Checks der laz-files, soll nicht komplett laufen, sondern nur teilweise
+#   Diverse Checks der laz-files, soll nicht komplett laufen, sondern nur abschnittsweise
 #
 # Input:
 #   - div
