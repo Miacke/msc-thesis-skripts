@@ -40,11 +40,11 @@ print(paste0("Start: ", start_time))
 
 # Untersuchungsgebiete
 survey_area_fgdb_path <- r"(A:\11_MasterThesis\01_DefStruktur\02_Data\02_Survey_areas\SURVEY_AREA_MSCTHESIS.gdb)"
-survey_area_fcname <- "survey_area_final"
+survey_area_fcname <- "survey_area_final_insideflightlines"
 survey_area <- st_read(survey_area_fgdb_path, layer = survey_area_fcname)
 
 # LAZ-Files
-laz_parent_folder <- r"(A:\11_MasterThesis\01_DefStruktur\02_Data\03_ALS-Data\BEV_Data_02)"
+laz_parent_folder <- r"(A:\11_MasterThesis\01_DefStruktur\02_Data\03_ALS-Data\BEV_Data_02\01_inside_flightlines)"
 
 # Fluglinien
 flightlines <- st_read(survey_area_fgdb_path, layer = "Fluglinien")
@@ -55,22 +55,39 @@ flightlines <- st_read(survey_area_fgdb_path, layer = "Fluglinien")
 
 calc_line_metrics <- function(las,grid,column_prefix,cellsize){
   
-  # metriken pro polygon berechnen und in sf-Objekt (pm) speichern
+  # metriken pro polygon berechnen und in sf-Objekt (pm) speichern 
   pm <- polygon_metrics(las, ~list(
     sa_min = min(ScanAngle),
     sa_max = max(ScanAngle),
     n = length(Z),
-    n_gp = sum(Classification == 2L)
+    n_gp = sum(Classification == 2L & ReturnNumber == NumberOfReturns),
+    n_lr = sum(ReturnNumber == NumberOfReturns)  # Anzahl last returns wo Anzahl Returns = Returnnummer
   ), geometry = grid)
+  
   
   pm$n[is.na(pm$n)] <- 0  # NA zu 0
   pm$n_gp[is.na(pm$n_gp)] <- 0
+  pm$n_lr[is.na(pm$n_lr)] <- 0
   
-  grid[[paste0(column_prefix, "_sa_min")]]    <- pm$sa_min
-  grid[[paste0(column_prefix, "_sa_max")]]    <- pm$sa_max
-  grid[[paste0(column_prefix, "_dichte")]]    <- pm$n / (cellsize^2)
+  grid[[paste0(column_prefix, "_sa_min")]] <- pm$sa_min
+  grid[[paste0(column_prefix, "_sa_max")]] <- pm$sa_max
+  grid[[paste0(column_prefix, "_dichte")]] <- pm$n / (cellsize^2)
   grid[[paste0(column_prefix, "_groundhit")]] <- pm$n_gp > 0
+  grid[[paste0(column_prefix, "_n_gp")]] <- pm$n_gp
+  grid[[paste0(column_prefix, "_n_lr")]] <- pm$n_lr
   
+  
+  return(grid)
+}
+
+calc_penetration_rate <- function(grid, line_string, column_prefix){
+  # Berechnet Penetrationsrate mit Daten, welche im grid abgelegt sind
+  l <- strsplit(line_string, ",")[[1]]
+  
+  nlr <- grid[[paste0("L", l[1], "_n_lr")]] + grid[[paste0("L", l[2], "_n_lr")]]
+  ngp <- grid[[paste0("L", l[1], "_n_gp")]] + grid[[paste0("L", l[2], "_n_gp")]]
+  
+  grid[[paste0(column_prefix, "_pr")]] <- ifelse(nlr > 0, ngp / nlr, NA_real_)
   return(grid)
 }
 
@@ -91,7 +108,7 @@ for (i in survey_area$SA_Nr){
   }
   
   # Nach Programmabbruch muss folgender Code angepasst ggf. an einer bestimmten Stelle eingesetzt werden
-  # if (i != 6 & i != 7){
+  # if (i != 2){
   #   print(paste0("Gebiet Nr.", i, " übersprungen"))
   #   next
   # }
@@ -100,26 +117,33 @@ for (i in survey_area$SA_Nr){
   current_survey_area <- dplyr::filter(survey_area, SA_Nr == i)
   start_time_grid <- now()
   # Gitter bilden (ergibt sfc-objekt -> reine Geometrie, ohne Attributentabelle)
+  grid_5_sfc <- st_make_grid(current_survey_area, cellsize = 5)
   grid_1_sfc <- st_make_grid(current_survey_area, cellsize = 1)  
   grid_05_sfc <- st_make_grid(current_survey_area, cellsize = 0.5)
 
+
   # grid-Zellen selektieren die sich komplett in der survey_area befinden
+  grid_5_sfc_selected <- spatial.select(current_survey_area, grid_5_sfc, predicate = "contains")
   grid_1_sfc_selected <- spatial.select(current_survey_area, grid_1_sfc, predicate = "contains")
   grid_05_sfc_selected <- spatial.select(current_survey_area, grid_05_sfc, predicate = "contains")
   
   # Umwandlung der Gitterzellen in sf-Objekte
+  grid_5 <- st_sf(geometry = grid_5_sfc_selected)
   grid_1 <- st_sf(geometry = grid_1_sfc_selected)
   grid_05 <- st_sf(geometry = grid_05_sfc_selected)
 
   # Untersuchungsgebiet (i) jeder Zelle als neues Attribut zuweisen
+  grid_5$SA_Nr <- current_survey_area$SA_Nr
   grid_1$SA_Nr <- current_survey_area$SA_Nr
   grid_05$SA_Nr <- current_survey_area$SA_Nr
 
   # Eindeutiger Zellenidentifikator als neues Attribut zuweisen: "[SA_Nr]_[Forlaufende Nummerierung der Zellen]"
+  grid_5$ID <- paste0(current_survey_area$SA_Nr, "_", seq_len(nrow(grid_5)))
   grid_1$ID <- paste0(current_survey_area$SA_Nr, "_", seq_len(nrow(grid_1)))
   grid_05$ID <- paste0(current_survey_area$SA_Nr, "_", seq_len(nrow(grid_05)))
   
   # Zellzentren einmal pro Gebiet berechnen
+  zentren_5 <- st_centroid(st_geometry(grid_5))
   zentren_05 <- st_centroid(st_geometry(grid_05))
   zentren_1 <- st_centroid(st_geometry(grid_1))
 
@@ -151,19 +175,21 @@ for (i in survey_area$SA_Nr){
     
     grid_05 <- calc_line_metrics(las, grid_05, paste0("L", linie), 0.5)
     grid_1  <- calc_line_metrics(las, grid_1,  paste0("L", linie), 1)
+    grid_5  <- calc_line_metrics(las, grid_5,  paste0("L", linie), 5)
     rm(las); gc()
     
     # Abstand zur Fluglinie berechnen (da einzelne Zellen keine PUnkte haben und bei Scanangles dann NA steht)
     geom_line <- flightlines[flightlines$STR_BEZ == linie, ]
-    grid_05[[paste0("L", linie, "_abstand")]] <- as.numeric(st_distance(zentren_05, geom_line))
-    grid_1[[paste0("L", linie, "_abstand")]]  <- as.numeric(st_distance(zentren_1,  geom_line))
+    grid_05[[paste0("L", linie, "_distance")]] <- as.numeric(st_distance(zentren_05, geom_line))
+    grid_1[[paste0("L", linie, "_distance")]]  <- as.numeric(st_distance(zentren_1,  geom_line))
+    grid_5[[paste0("L", linie, "_distance")]]  <- as.numeric(st_distance(zentren_5,  geom_line))
     
     print(paste("... polygon-metrics berechnet für Linie", fl, "in", round(as.numeric(difftime(now(), start_time_scanangles, units = "mins")), 2), "min"))
   }
   
 
   # =============================================================
-  # Pro Parallel und Kreuz-flug Metriken berechnen
+  # Pro Parallel und Kreuzflug Metriken berechnen
   # =============================================================
   
   # -------------------------------------------------------------
@@ -177,14 +203,29 @@ for (i in survey_area$SA_Nr){
   # fluglinienkombinationen für parallelflüge ins grid schreiben
   grid_05$parallel_1_fl <- p1_fl
   grid_1$parallel_1_fl  <- p1_fl
+  grid_5$parallel_1_fl  <- p1_fl
   grid_05$parallel_2_fl <- p2_fl
   grid_1$parallel_2_fl  <- p2_fl
+  grid_5$parallel_2_fl  <- p2_fl
   
   # groundhits für parallelflüge vereinigen und ins grid schreiben
   grid_05$parallel_1_groundhit <- grid_05[[paste0("L",strsplit(p1_fl, ",")[[1]][1],"_groundhit")]] | grid_05[[paste0("L",strsplit(p1_fl, ",")[[1]][2],"_groundhit")]]  # groundhits pro fluglinie sind vorhanden, diese werden nur noch zusammengezählt
   grid_05$parallel_2_groundhit <- grid_05[[paste0("L",strsplit(p2_fl, ",")[[1]][1],"_groundhit")]] | grid_05[[paste0("L",strsplit(p2_fl, ",")[[1]][2],"_groundhit")]]
   grid_1$parallel_1_groundhit <- grid_1[[paste0("L",strsplit(p1_fl, ",")[[1]][1],"_groundhit")]] | grid_1[[paste0("L",strsplit(p1_fl, ",")[[1]][2],"_groundhit")]]
   grid_1$parallel_2_groundhit <- grid_1[[paste0("L",strsplit(p2_fl, ",")[[1]][1],"_groundhit")]] | grid_1[[paste0("L",strsplit(p2_fl, ",")[[1]][2],"_groundhit")]]
+  grid_5$parallel_1_groundhit <- grid_5[[paste0("L",strsplit(p1_fl, ",")[[1]][1],"_groundhit")]] | grid_5[[paste0("L",strsplit(p1_fl, ",")[[1]][2],"_groundhit")]]
+  grid_5$parallel_2_groundhit <- grid_5[[paste0("L",strsplit(p2_fl, ",")[[1]][1],"_groundhit")]] | grid_5[[paste0("L",strsplit(p2_fl, ",")[[1]][2],"_groundhit")]]
+  
+  # Penetrationsrate für parallelflüge berechnen und ins grid schreiben
+  grid_05 <- calc_penetration_rate(grid_05, p1_fl, "parallel_1")
+  grid_05 <- calc_penetration_rate(grid_05, p2_fl, "parallel_2")
+  
+  grid_1 <- calc_penetration_rate(grid_1, p1_fl, "parallel_1")
+  grid_1 <- calc_penetration_rate(grid_1, p2_fl, "parallel_2")
+  
+  grid_5 <- calc_penetration_rate(grid_5, p1_fl, "parallel_1")
+  grid_5 <- calc_penetration_rate(grid_5, p2_fl, "parallel_2")
+
   
   print(paste("Parallelflüge berechnet in", round(as.numeric(difftime(now(), start_time_parallel, units = "mins")), 2), "min"))
   
@@ -202,17 +243,25 @@ for (i in survey_area$SA_Nr){
       cross <- c(path_1, path_2)
       
       # Fluglinienkombination ins grid schreiben
-      cross_col <- paste0("kreuz_", counter_path_1, "_", counter_path_2)
+      cross_col <- paste0("cross_", counter_path_1, "_", counter_path_2)
       cross_fl <- paste(tools::file_path_sans_ext(basename(cross)), collapse = ",")
       grid_05[[paste0(cross_col, "_fl")]] <- cross_fl
       grid_1[[paste0(cross_col, "_fl")]]  <- cross_fl
+      grid_5[[paste0(cross_col, "_fl")]]  <- cross_fl
+      
+      # Ground penetration berechnen
+      grid_05 <- calc_penetration_rate(grid_05, cross_fl, cross_col)
+      grid_1 <- calc_penetration_rate(grid_1, cross_fl, cross_col)
+      grid_5 <- calc_penetration_rate(grid_5, cross_fl, cross_col)
       
       # groundhits für kreuzflüge vereinigen und ins grid schreiben
       grid_05[[paste0(cross_col,"_groundhit")]] <- grid_05[[paste0("L",strsplit(cross_fl, ",")[[1]][1],"_groundhit")]] | grid_05[[paste0("L",strsplit(cross_fl, ",")[[1]][2],"_groundhit")]]
       grid_1[[paste0(cross_col,"_groundhit")]] <- grid_1[[paste0("L",strsplit(cross_fl, ",")[[1]][1],"_groundhit")]] | grid_1[[paste0("L",strsplit(cross_fl, ",")[[1]][2],"_groundhit")]]
+      grid_5[[paste0(cross_col,"_groundhit")]] <- grid_5[[paste0("L",strsplit(cross_fl, ",")[[1]][1],"_groundhit")]] | grid_5[[paste0("L",strsplit(cross_fl, ",")[[1]][2],"_groundhit")]]
       
     }
   }
+  
   print(paste("Kreuzflüge berechnet", round(as.numeric(difftime(now(), start_time_cross, units = "mins")), 2), "min"))
   
   
@@ -221,11 +270,12 @@ for (i in survey_area$SA_Nr){
   # =============================================================
   
   # output file als data.frame speichern
-  save(grid_05, file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen\03_calculate_metrics)", paste0(i, "_grid_05.Rda")))
-  save(grid_1, file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen\03_calculate_metrics)", paste0(i, "_grid_1.Rda")))
+  save(grid_05, file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen\03_calculate_metrics\01_inside_flightlines)", paste0(i, "_grid_05.Rda")))
+  save(grid_1, file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen\03_calculate_metrics\01_inside_flightlines)", paste0(i, "_grid_1.Rda")))
+  save(grid_5, file=file.path(r"(A:\11_MasterThesis\01_DefStruktur\07_Auswertungen\03_calculate_metrics\01_inside_flightlines)", paste0(i, "_grid_5.Rda")))
   
   # Memory freigeben
-  rm(grid_05, grid_1, grid_05_sfc, grid_1_sfc, grid_05_sfc_selected, grid_1_sfc_selected)
+  rm(grid_05, grid_1, grid_5, grid_5_sfc, grid_05_sfc, grid_1_sfc, grid_5_sfc_selected, grid_05_sfc_selected, grid_1_sfc_selected)
   gc()
   
   end_time_loop <- now()

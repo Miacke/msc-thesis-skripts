@@ -43,16 +43,16 @@ options(lidR.progress = FALSE)
 # ============================================================
 
 # laz-files
-laz_parent_folder <- r"(A:\11_MasterThesis\01_DefStruktur\02_Data\03_ALS-Data\BEV_Data_01)"
-laz_files <- list.files(laz_parent_folder, pattern = r"(\.laz$)", recursive = TRUE, full.names = TRUE, ignore.case = TRUE)
+laz_parent_folder <- r"(A:\11_MasterThesis\01_DefStruktur\02_Data\03_ALS-Data\BEV_Data_01\02_outside_flightline)"
+laz_files <- list.files(laz_parent_folder, pattern = r"(\.laz$)", full.names = TRUE, ignore.case = TRUE)
 
 # Untersuchungsgebiet
 survey_area_fgdb_path <- r"(A:\11_MasterThesis\01_DefStruktur\02_Data\02_Survey_areas\SURVEY_AREA_MSCTHESIS.gdb)"
-survey_area_fcname <- r"(survey_area_final)"
+survey_area_fcname <- r"(survey_area_final_outsideflightlines)"
 survey_area <- st_read(survey_area_fgdb_path, layer = survey_area_fcname)
 
 # Zielordner für Clips pro Untersuchungsgebiet
-output_folder <- r"(A:\11_MasterThesis\01_DefStruktur\02_Data\03_ALS-Data\BEV_Data_02)"
+output_folder <- r"(A:\11_MasterThesis\01_DefStruktur\02_Data\03_ALS-Data\BEV_Data_02\02_outside_flightlines)"
 
 # ============================================================
 # Funktionen
@@ -92,6 +92,7 @@ for (laz_file in laz_files){
   filename_parts <- strsplit(basename(laz_file), "_")[[1]]  # unterteilt den filenamen (nicht den ganzen pfad) in einzelne Teile welche durch "_" getrennt sind
   i <- strsplit(filename_parts[length(filename_parts)], "\\.")[[1]][1]  # nimmt den letzten teil, separiert nach "." und gibt von dieser liste den ersten vektor und von dort den ersten teil aus (= Untersuchungsgebiet)
   print(paste("Start in Untersuchungsgebiet Nr.", i))
+  
   
   # laz-file einlesen
   laz <- readLAS(laz_file)
